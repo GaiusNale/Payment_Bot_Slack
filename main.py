@@ -10,7 +10,6 @@ import send_email
 
 # Initialize Slack app with bot token
 app = App(token=config("SLACK_BOT_TOKEN"))
-
 # Define conversation states
 STATES = {
     "IDLE": 0,
@@ -113,12 +112,6 @@ def handle_cancel_command(ack, say, command):
     user_id = command["user_id"]
     clear_user_data(user_id)
     say("Application canceled. Use `/form` to fill the form again.")
-
-# Handle direct messages
-@app.event("message")
-def handle_message_events(body, logger):
-    """Handle all message events"""
-    pass
 
 @app.message("")
 def handle_dm(message, say):
