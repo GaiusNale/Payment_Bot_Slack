@@ -7,15 +7,18 @@ import os
 from datetime import datetime
 import pandas as pd
 import send_email
+from slack_sdk import WebClient
+
 
 # Initialize Slack app with bot token
 app = App(token=config("SLACK_BOT_TOKEN"))
+slack_client = WebClient(token=config("SLACK_BOT_TOKEN"))
+
 
 # Define conversation states
 STATES = {
     "IDLE": 0,
     "NAME": 1,
-    "EMAIL": 2,
     "REASON": 3,
     "AMOUNT": 4,
     "ACCOUNT_NUM": 5,
@@ -114,12 +117,6 @@ def handle_cancel_command(ack, say, command):
     clear_user_data(user_id)
     say("Application canceled. Use `/form` to fill the form again.")
 
-# Handle direct messages
-@app.event("message")
-def handle_message_events(body, logger):
-    """Handle all message events"""
-    pass
-
 @app.message("")
 def handle_dm(message, say):
     """Handle direct messages based on user state"""
@@ -136,15 +133,6 @@ def handle_dm(message, say):
     # Process based on current state
     if state == STATES["NAME"]:
         data["name"] = text
-        set_user_state(user_id, STATES["EMAIL"])
-        say("Please enter your email:")
-        
-    elif state == STATES["EMAIL"]:
-        # Basic email validation
-        if not re.match(r"[^@]+@[^@]+\.[^@]+", text):
-            say("Please enter a valid email address:")
-            return
-        data["email"] = text
         set_user_state(user_id, STATES["REASON"])
         say("Please enter your reason for payment:")
         
@@ -176,7 +164,6 @@ def handle_dm(message, say):
         confirmation_message = f"""Please confirm your application details:
 
 *Name:* {data['name']}
-*Email:* {data['email']}
 *Reason:* {data['reason']}
 *Amount:* ₦{data['amount']}
 *Account Number:* {data['accountnumber']}
@@ -233,12 +220,12 @@ def save_user_data(data):
     """Save user data to CSV and Excel files"""
     csv_file_path = "payment_data.csv"
     excel_file_path = "payment_data.xlsx"
+    target_channel = config("CHANNEL_ID", default=None)
     
     # Prepare the user data with timestamp
     user_data_with_timestamp = {
-        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "Name": data["name"],
-        "Email": data["email"],
         "Reason": data["reason"],
         "Amount": data["amount"],
         "Account Number": data["accountnumber"],
@@ -260,7 +247,24 @@ def save_user_data(data):
         
         # Convert to Excel
         excel_converted = csv_to_excel(csv_file_path, excel_file_path)
-        
+
+        # Send the file to a slack channel 
+
+        file_uploaded = False
+        if excel_converted:
+            try:
+                with open(excel_file_path, "rb") as file:
+                    result = slack_client.files_upload_v2(
+                        channels=target_channel,
+                        file=file,
+                        filename="Payment Data.xlsx",
+                        title=f"Payment Data - {user_data_with_timestamp['Timestamp']}",
+                    )
+                    file_uploaded = result["ok"]
+                    print("File uploaded to Slack")
+            except Exception as e:
+                print(f"Error uploading file to Slack: {e}")
+
         # Send email if Excel conversion succeeded
         email_sent = False
         if excel_converted:
@@ -269,7 +273,8 @@ def save_user_data(data):
         return {
             "success": True,
             "excel_converted": excel_converted,
-            "email_sent": email_sent
+            "email_sent": email_sent,
+            "file_uploaded": file_uploaded
         }
         
     except Exception as e:
@@ -277,7 +282,8 @@ def save_user_data(data):
         return {
             "success": False,
             "excel_converted": False,
-            "email_sent": False
+            "email_sent": False,
+            "file_uploaded": False
         }
 
 def main():
