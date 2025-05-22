@@ -24,7 +24,8 @@ STATES = {
     "ACCOUNT_NUM": 5,
     "ACCOUNT_NAME": 6,
     "BANK_NAME": 7,
-    "CONFIRM": 8
+    "CONFIRM": 8,
+    "CHOICE": 9,
 }
 
 # Store user conversation states
@@ -107,6 +108,11 @@ def handle_start_command(ack, say, command):
 def handle_form_command(ack, say, command):
     ack()
     user_id = command["user_id"]
+    
+    if check_user_submission(user_id):
+        set_user_state(user_id, STATES["CHOICE"])
+        say ("You've submitted a form before. Reply with: \n- 'Full' to fill out a new form \n- 'Update to change the reason and amount requested")
+
     set_user_state(user_id, STATES["NAME"])
     say("Please enter your name:")
 
@@ -116,6 +122,19 @@ def handle_cancel_command(ack, say, command):
     user_id = command["user_id"]
     clear_user_data(user_id)
     say("Application canceled. Use `/form` to fill the form again.")
+
+def check_user_submission(user_id):
+    csv_file_path = "payment_data.csv"
+
+    try:
+        if os.path.isfile(csv_file_path):
+            df = pd.read_csv(csv_file_path)
+            if "User ID" in df.columns and user_id in df ["User ID"].values:
+                return True
+        return False
+    except Exception as e:
+        print(f"Error checking user submission: {e}")
+        return False 
 
 @app.message("")
 def handle_dm(message, say):
@@ -224,7 +243,8 @@ def save_user_data(data):
     
     # Prepare the user data with timestamp
     user_data_with_timestamp = {
-        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Timestamp": datetime.now().strftime("%d-%m-%Y %H:%M"),
+        "User ID": data["user_id"],
         "Name": data["name"],
         "Reason": data["reason"],
         "Amount": data["amount"],
