@@ -8,6 +8,7 @@ from datetime import datetime
 import pandas as pd
 import send_email
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 
 # Initialize Slack app with bot token
@@ -112,9 +113,9 @@ def handle_form_command(ack, say, command):
     if check_user_submission(user_id):
         set_user_state(user_id, STATES["CHOICE"])
         say ("You've submitted a form before. Reply with: \n- 'Full' to fill out a new form \n- 'Update to change the reason and amount requested")
-
-    set_user_state(user_id, STATES["NAME"])
-    say("Please enter your name:")
+    else:
+        set_user_state(user_id, STATES["NAME"])
+        say("Please enter your name:")
 
 @app.command("/cancel")
 def handle_cancel_command(ack, say, command):
@@ -124,17 +125,32 @@ def handle_cancel_command(ack, say, command):
     say("Application canceled. Use `/form` to fill the form again.")
 
 def check_user_submission(user_id):
+    """Check if user has previously submitted a form"""
     csv_file_path = "payment_data.csv"
-
     try:
         if os.path.isfile(csv_file_path):
             df = pd.read_csv(csv_file_path)
-            if "User ID" in df.columns and user_id in df ["User ID"].values:
+            if "User ID" in df.columns and user_id in df["User ID"].values:
                 return True
         return False
     except Exception as e:
         print(f"Error checking user submission: {e}")
-        return False 
+        return False
+    
+def get_last_submission(user_id):
+    """Retrieve the last submission for a user from CSV"""
+    csv_file_path = "payment_data.csv"
+    try:
+        if os.path.isfile(csv_file_path):
+            df = pd.read_csv(csv_file_path)
+            if "User ID" in df.columns:
+                user_rows = df[df["User ID"] == user_id]
+                if not user_rows.empty:
+                    return user_rows.iloc[-1].to_dict()  # Get the most recent submission
+        return None
+    except Exception as e:
+        print(f"Error retrieving last submission: {e}")
+        return None
 
 @app.message("")
 def handle_dm(message, say):
@@ -150,7 +166,28 @@ def handle_dm(message, say):
     data = get_user_data(user_id)
     
     # Process based on current state
-    if state == STATES["NAME"]:
+    if state == STATES["CHOICE"]:
+        user_reply = text.lower()
+        if user_reply == "full":
+            set_user_state(user_id, STATES["NAME"])
+            say("Please enter your name:")
+        elif user_reply == "update":
+            last_submission = get_last_submission(user_id)
+            if last_submission:
+                data["name"] = last_submission["Name"]
+                data["accountnumber"] = last_submission["Account Number"]
+                data["accountname"] = last_submission["Account Name"]
+                data["bank_name"] = last_submission["Bank Name"]
+                set_user_state(user_id, STATES["REASON"])
+                say("Please enter your new reason for payment:")
+            else:
+                say("Couldn’t find your previous data. Please fill out the full form.")
+                set_user_state(user_id, STATES["NAME"])
+                say("Please enter your name:")
+        else:
+            say("Invalid choice. Reply with 'Full' or 'Update'.")
+    
+    elif state == STATES["NAME"]:
         data["name"] = text
         set_user_state(user_id, STATES["REASON"])
         say("Please enter your reason for payment:")
@@ -198,13 +235,17 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
         
         if user_reply == "yes":
             # Save to CSV and Excel
-            save_result = save_user_data(data)
+            save_result = save_user_data(data, user_id)
             
             if save_result["success"]:
-                if save_result["email_sent"]:
-                    say("Your application has been submitted successfully, and the accountant has been notified. ✅")
+                if save_result["email_sent"] and save_result["file_uploaded"]:
+                    say("Your application has been submitted successfully, the accountant has been notified, and the payment data has been sent to their channel. ✅")
+                elif save_result["email_sent"]:
+                    say("Your application was saved and the accountant was notified via email, but there was an error sending the file to their channel. Please contact support.")
+                elif save_result["file_uploaded"]:
+                    say("Your application was saved and the payment data was sent to the accountant’s channel, but there was an error notifying them via email. Please contact support.")
                 else:
-                    say("Your application was saved, but there was an error notifying the accountant. Please contact support.")
+                    say("Your application was saved, but there was an error notifying the accountant and sending the file. Please contact support.")
             else:
                 say("An error occurred while saving your data. Please try again.")
             
@@ -220,7 +261,6 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
     else:
         # User is in IDLE state
         say("Hi! Use `/form` to start a payment application or `/start` for more information.")
-
 def csv_to_excel(csv_file, excel_file):
     """Convert CSV to Excel format"""
     try:
@@ -235,16 +275,16 @@ def csv_to_excel(csv_file, excel_file):
         print(f"Error: {e}")
         return False
 
-def save_user_data(data):
-    """Save user data to CSV and Excel files"""
+def save_user_data(data, user_id):
+    """Save user data to CSV and Excel files and upload to accountant’s Slack channel"""
     csv_file_path = "payment_data.csv"
     excel_file_path = "payment_data.xlsx"
-    target_channel = config("CHANNEL_ID", default=None)
+    target_channel = config("CHANNEL_ID")
     
-    # Prepare the user data with timestamp
+    # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
-        "Timestamp": datetime.now().strftime("%d-%m-%Y %H:%M"),
-        "User ID": data["user_id"],
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "User ID": user_id,  # Add user ID
         "Name": data["name"],
         "Reason": data["reason"],
         "Amount": data["amount"],
@@ -259,39 +299,36 @@ def save_user_data(data):
         # Write to CSV
         with open(csv_file_path, "a", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=user_data_with_timestamp.keys())
-            
             if not file_exists:
                 writer.writeheader()
-            
             writer.writerow(user_data_with_timestamp)
         
         # Convert to Excel
         excel_converted = csv_to_excel(csv_file_path, excel_file_path)
-
-        # Send the file to a slack channel 
-
+        
+        # Upload Excel file to the accountant’s Slack channel
         file_uploaded = False
         if excel_converted:
             try:
                 with open(excel_file_path, "rb") as file:
                     result = slack_client.files_upload_v2(
-                        channels=target_channel,
+                        channel=target_channel,
                         file=file,
-                        filename="Payment Data.xlsx",
-                        title=f"Payment Data - {user_data_with_timestamp['Timestamp']}",
+                        filename="Payment_Data.xlsx",
+                        title=f"Payment Data - {user_data_with_timestamp['Timestamp']}"
                     )
                     file_uploaded = result["ok"]
-                    print("File uploaded to Slack")
-            except Exception as e:
-                print(f"Error uploading file to Slack: {e}")
-
+                    print(f"File uploaded to Slack channel {target_channel}")
+            except SlackApiError as e:
+                print(f"Error uploading file to Slack: {e.response['error']}")
+        
         # Send email if Excel conversion succeeded
         email_sent = False
         if excel_converted:
             email_sent = send_email.send_email_via_gmail(excel_file_path)
         
         return {
-            "success": True,
+            "success": excel_converted and file_uploaded,
             "excel_converted": excel_converted,
             "email_sent": email_sent,
             "file_uploaded": file_uploaded
@@ -305,7 +342,7 @@ def save_user_data(data):
             "email_sent": False,
             "file_uploaded": False
         }
-
+    
 def main():
     # For development: Use Socket Mode
     # For production: Use HTTP endpoints
