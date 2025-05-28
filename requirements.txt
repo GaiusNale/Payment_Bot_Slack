@@ -1,0 +1,5 @@
+slack-bolt
+slack-sdk
+decouple
+pandas
+python-dotenv

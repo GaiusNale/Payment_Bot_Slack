@@ -9,6 +9,9 @@ import pandas as pd
 import send_email
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+import threading
+import time 
+
 
 
 # Initialize Slack app with bot token
@@ -20,13 +23,14 @@ slack_client = WebClient(token=config("SLACK_BOT_TOKEN"))
 STATES = {
     "IDLE": 0,
     "NAME": 1,
-    "REASON": 3,
-    "AMOUNT": 4,
-    "ACCOUNT_NUM": 5,
-    "ACCOUNT_NAME": 6,
-    "BANK_NAME": 7,
-    "CONFIRM": 8,
-    "CHOICE": 9,
+    "REASON": 2,
+    "AMOUNT": 3,
+    "ACCOUNT_NUM": 4,
+    "ACCOUNT_NAME": 5,
+    "BANK_NAME": 6,
+    "CONFIRM": 7,
+    "CHOICE": 8,
+    "CONFIRM_PREFILLED": 9,
 }
 
 # Store user conversation states
@@ -178,14 +182,32 @@ def handle_dm(message, say):
                 data["accountnumber"] = last_submission["Account Number"]
                 data["accountname"] = last_submission["Account Name"]
                 data["bank_name"] = last_submission["Bank Name"]
-                set_user_state(user_id, STATES["REASON"])
-                say("Please enter your new reason for payment:")
+                set_user_state(user_id, STATES["CONFIRM_PREFILLED"])
+                say(f"""Please confirm your existing details:
+
+*Name:* {data['name']}
+*Account Number:* {data['accountnumber']}
+*Account Name:* {data['accountname']}
+*Bank Name:* {data['bank_name']}
+
+Reply with 'Yes' to use these details or 'No' to fill out a new form.""")
             else:
                 say("Couldn’t find your previous data. Please fill out the full form.")
                 set_user_state(user_id, STATES["NAME"])
                 say("Please enter your name:")
         else:
             say("Invalid choice. Reply with 'Full' or 'Update'.")
+    
+    elif state == STATES["CONFIRM_PREFILLED"]:
+        user_reply = text.lower()
+        if user_reply == "yes":
+            set_user_state(user_id, STATES["REASON"])
+            say("Please enter your new reason for payment:")
+        elif user_reply == "no":
+            set_user_state(user_id, STATES["NAME"])
+            say("Please enter your name:")
+        else:
+            say("Invalid response. Reply with 'Yes' or 'No'.")
     
     elif state == STATES["NAME"]:
         data["name"] = text
@@ -199,8 +221,23 @@ def handle_dm(message, say):
         
     elif state == STATES["AMOUNT"]:
         data["amount"] = text
-        set_user_state(user_id, STATES["ACCOUNT_NUM"])
-        say("Please enter account number:")
+        # For Update flow, go to CONFIRM; for Full flow, continue to ACCOUNT_NUM
+        if get_user_state(user_id) == STATES["AMOUNT"] and "accountnumber" in data:
+            set_user_state(user_id, STATES["CONFIRM"])
+            confirmation_message = f"""Please confirm your updated application details:
+
+*Name:* {data['name']}
+*Reason:* {data['reason']}
+*Amount:* ₦{data['amount']}
+*Account Number:* {data['accountnumber']}
+*Account Name:* {data['accountname']}
+*Bank Name:* {data['bank_name']}
+
+Reply with 'Yes' to confirm or 'No' to cancel."""
+            say(confirmation_message)
+        else:
+            set_user_state(user_id, STATES["ACCOUNT_NUM"])
+            say("Please enter account number:")
         
     elif state == STATES["ACCOUNT_NUM"]:
         data["accountnumber"] = text
@@ -216,7 +253,6 @@ def handle_dm(message, say):
         data["bank_name"] = text
         set_user_state(user_id, STATES["CONFIRM"])
         
-        # Show confirmation message
         confirmation_message = f"""Please confirm your application details:
 
 *Name:* {data['name']}
@@ -226,15 +262,13 @@ def handle_dm(message, say):
 *Account Name:* {data['accountname']}
 *Bank Name:* {data['bank_name']}
 
-Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
-        
+Reply with 'Yes' to confirm or 'No' to cancel."""
         say(confirmation_message)
         
     elif state == STATES["CONFIRM"]:
         user_reply = text.lower()
         
         if user_reply == "yes":
-            # Save to CSV and Excel
             save_result = save_user_data(data, user_id)
             
             if save_result["success"]:
@@ -259,7 +293,6 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             say("Invalid response. Please reply with 'Yes' or 'No'.")
     
     else:
-        # User is in IDLE state
         say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 def csv_to_excel(csv_file, excel_file):
     """Convert CSV to Excel format"""
@@ -344,17 +377,15 @@ def save_user_data(data, user_id):
         }
     
 def main():
-    # For development: Use Socket Mode
-    # For production: Use HTTP endpoints
-    if config("SLACK_APP_TOKEN", default=None):
-        # Socket Mode (recommended for development)
-        handler = SocketModeHandler(app, config("SLACK_APP_TOKEN"))
-        print("⚡️ Slack bolt app is running in Socket Mode!")
-        handler.start()
-    else:
-        # HTTP Mode (for production)
-        print("⚡️ Slack bolt app is running in HTTP Mode!")
-        app.start(port=int(config("PORT", default=3000)))
+    # Always use HTTP Mode for production deployment
+    print("⚡️ Slack bolt app is running in HTTP Mode!")
+    app.start(port=int(config("PORT", default=3000)))
+
+# Add health check endpoint
+@app.middleware
+def log_request(logger, body, next):
+    logger.debug(body)
+    return next()
 
 if __name__ == "__main__":
     main()
