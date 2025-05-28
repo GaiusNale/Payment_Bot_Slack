@@ -1,6 +1,4 @@
 from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from decouple import config
 import re
 import csv
 import os
@@ -9,28 +7,29 @@ import pandas as pd
 import send_email
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+import requests
 import threading
-import time 
+import time
 
-
+# Get environment variables
+def get_env(key, default=None):
+    return os.environ.get(key, default)
 
 # Initialize Slack app with bot token
-app = App(token=config("SLACK_BOT_TOKEN"))
-slack_client = WebClient(token=config("SLACK_BOT_TOKEN"))
-
+app = App(token=get_env("SLACK_BOT_TOKEN"))
+slack_client = WebClient(token=get_env("SLACK_BOT_TOKEN"))
 
 # Define conversation states
 STATES = {
     "IDLE": 0,
     "NAME": 1,
-    "REASON": 2,
-    "AMOUNT": 3,
-    "ACCOUNT_NUM": 4,
-    "ACCOUNT_NAME": 5,
-    "BANK_NAME": 6,
-    "CONFIRM": 7,
-    "CHOICE": 8,
-    "CONFIRM_PREFILLED": 9,
+    "REASON": 3,
+    "AMOUNT": 4,
+    "ACCOUNT_NUM": 5,
+    "ACCOUNT_NAME": 6,
+    "BANK_NAME": 7,
+    "CONFIRM": 8,
+    "CHOICE": 9,
 }
 
 # Store user conversation states
@@ -57,6 +56,27 @@ def clear_user_data(user_id):
         del user_data[user_id]
     if user_id in user_states:
         del user_states[user_id]
+
+# Health check endpoint for keeping service alive
+@app.route("/health")
+def health_check():
+    return {"status": "healthy"}, 200
+
+# Keep-alive function to prevent service from sleeping
+def keep_alive():
+    """Ping service every 10 minutes to prevent sleep on free tier"""
+    base_url = get_env("RENDER_URL", "")  # Add your render URL to env vars
+    if not base_url:
+        return
+    
+    while True:
+        try:
+            requests.get(f"{base_url}/health", timeout=30)
+            print(f"Keep-alive ping sent at {datetime.now()}")
+            time.sleep(600)  # 10 minutes
+        except Exception as e:
+            print(f"Keep-alive ping failed: {e}")
+            time.sleep(600)
 
 # Handle home tab opening
 @app.event("app_home_opened")
@@ -182,32 +202,14 @@ def handle_dm(message, say):
                 data["accountnumber"] = last_submission["Account Number"]
                 data["accountname"] = last_submission["Account Name"]
                 data["bank_name"] = last_submission["Bank Name"]
-                set_user_state(user_id, STATES["CONFIRM_PREFILLED"])
-                say(f"""Please confirm your existing details:
-
-*Name:* {data['name']}
-*Account Number:* {data['accountnumber']}
-*Account Name:* {data['accountname']}
-*Bank Name:* {data['bank_name']}
-
-Reply with 'Yes' to use these details or 'No' to fill out a new form.""")
+                set_user_state(user_id, STATES["REASON"])
+                say("Please enter your new reason for payment:")
             else:
-                say("Couldn’t find your previous data. Please fill out the full form.")
+                say("Couldn't find your previous data. Please fill out the full form.")
                 set_user_state(user_id, STATES["NAME"])
                 say("Please enter your name:")
         else:
             say("Invalid choice. Reply with 'Full' or 'Update'.")
-    
-    elif state == STATES["CONFIRM_PREFILLED"]:
-        user_reply = text.lower()
-        if user_reply == "yes":
-            set_user_state(user_id, STATES["REASON"])
-            say("Please enter your new reason for payment:")
-        elif user_reply == "no":
-            set_user_state(user_id, STATES["NAME"])
-            say("Please enter your name:")
-        else:
-            say("Invalid response. Reply with 'Yes' or 'No'.")
     
     elif state == STATES["NAME"]:
         data["name"] = text
@@ -221,23 +223,8 @@ Reply with 'Yes' to use these details or 'No' to fill out a new form.""")
         
     elif state == STATES["AMOUNT"]:
         data["amount"] = text
-        # For Update flow, go to CONFIRM; for Full flow, continue to ACCOUNT_NUM
-        if get_user_state(user_id) == STATES["AMOUNT"] and "accountnumber" in data:
-            set_user_state(user_id, STATES["CONFIRM"])
-            confirmation_message = f"""Please confirm your updated application details:
-
-*Name:* {data['name']}
-*Reason:* {data['reason']}
-*Amount:* ₦{data['amount']}
-*Account Number:* {data['accountnumber']}
-*Account Name:* {data['accountname']}
-*Bank Name:* {data['bank_name']}
-
-Reply with 'Yes' to confirm or 'No' to cancel."""
-            say(confirmation_message)
-        else:
-            set_user_state(user_id, STATES["ACCOUNT_NUM"])
-            say("Please enter account number:")
+        set_user_state(user_id, STATES["ACCOUNT_NUM"])
+        say("Please enter account number:")
         
     elif state == STATES["ACCOUNT_NUM"]:
         data["accountnumber"] = text
@@ -253,6 +240,7 @@ Reply with 'Yes' to confirm or 'No' to cancel."""
         data["bank_name"] = text
         set_user_state(user_id, STATES["CONFIRM"])
         
+        # Show confirmation message
         confirmation_message = f"""Please confirm your application details:
 
 *Name:* {data['name']}
@@ -262,13 +250,15 @@ Reply with 'Yes' to confirm or 'No' to cancel."""
 *Account Name:* {data['accountname']}
 *Bank Name:* {data['bank_name']}
 
-Reply with 'Yes' to confirm or 'No' to cancel."""
+Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
+        
         say(confirmation_message)
         
     elif state == STATES["CONFIRM"]:
         user_reply = text.lower()
         
         if user_reply == "yes":
+            # Save to CSV and Excel
             save_result = save_user_data(data, user_id)
             
             if save_result["success"]:
@@ -277,7 +267,7 @@ Reply with 'Yes' to confirm or 'No' to cancel."""
                 elif save_result["email_sent"]:
                     say("Your application was saved and the accountant was notified via email, but there was an error sending the file to their channel. Please contact support.")
                 elif save_result["file_uploaded"]:
-                    say("Your application was saved and the payment data was sent to the accountant’s channel, but there was an error notifying them via email. Please contact support.")
+                    say("Your application was saved and the payment data was sent to the accountant's channel, but there was an error notifying them via email. Please contact support.")
                 else:
                     say("Your application was saved, but there was an error notifying the accountant and sending the file. Please contact support.")
             else:
@@ -293,7 +283,9 @@ Reply with 'Yes' to confirm or 'No' to cancel."""
             say("Invalid response. Please reply with 'Yes' or 'No'.")
     
     else:
+        # User is in IDLE state
         say("Hi! Use `/form` to start a payment application or `/start` for more information.")
+
 def csv_to_excel(csv_file, excel_file):
     """Convert CSV to Excel format"""
     try:
@@ -309,10 +301,10 @@ def csv_to_excel(csv_file, excel_file):
         return False
 
 def save_user_data(data, user_id):
-    """Save user data to CSV and Excel files and upload to accountant’s Slack channel"""
+    """Save user data to CSV and Excel files and upload to accountant's Slack channel"""
     csv_file_path = "payment_data.csv"
     excel_file_path = "payment_data.xlsx"
-    target_channel = config("CHANNEL_ID")
+    target_channel = get_env("CHANNEL_ID")
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
@@ -339,7 +331,7 @@ def save_user_data(data, user_id):
         # Convert to Excel
         excel_converted = csv_to_excel(csv_file_path, excel_file_path)
         
-        # Upload Excel file to the accountant’s Slack channel
+        # Upload Excel file to the accountant's Slack channel
         file_uploaded = False
         if excel_converted:
             try:
@@ -377,15 +369,17 @@ def save_user_data(data, user_id):
         }
     
 def main():
-    # Always use HTTP Mode for production deployment
+    """Main function - always use HTTP mode for production"""
     print("⚡️ Slack bolt app is running in HTTP Mode!")
-    app.start(port=int(config("PORT", default=3000)))
-
-# Add health check endpoint
-@app.middleware
-def log_request(logger, body, next):
-    logger.debug(body)
-    return next()
+    
+    # Start keep-alive thread for free tier hosting
+    render_url = get_env("RENDER_URL", "")
+    if render_url:
+        threading.Thread(target=keep_alive, daemon=True).start()
+        print("Keep-alive service started")
+    
+    # Start the Flask app
+    app.start(port=int(get_env("PORT", "3000")))
 
 if __name__ == "__main__":
     main()
