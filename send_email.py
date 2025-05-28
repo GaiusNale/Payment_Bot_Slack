@@ -1,82 +1,80 @@
-from decouple import config
 import smtplib
-from email.mime.text import MIMEText
+import os
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-import os
-from datetime import datetime
+import datetime
 
-
-def send_email_via_gmail(file_path):
-    """Send email with attachment via Gmail SMTP"""
-    # Load environment variables
-    sender_email = config("EMAIL_SENDER", default=None)
-    sender_password = config("EMAIL_PASSWORD", default=None)
-    receiver_email = config("EMAIL_RECEIVER", default=None)
-
-    if not sender_email or not sender_password or not receiver_email:
-        print("Error: Missing email environment variables. Check your .env file.")
-        return False
-
-    # Email content
-    subject = f"New Payment Application - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    body = """A new payment application has been received via Slack bot.
-
-Please find the attached Excel file for complete details.
-
-This is an automated message from the Payment Bot.
-"""
-
-    # Create the email message
-    msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
-    # Attach the file
+def send_email_via_gmail(attachment_path):
+    """Send email with Excel attachment via Gmail SMTP"""
     try:
-        with open(file_path, "rb") as attachment:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
+        # Email configuration from environment variables
+        sender_email = os.environ.get("EMAIL_SENDER")
+        sender_password = os.environ.get("EMAIL_PASSWORD") 
+        receiver_email = os.environ.get("EMAIL_RECEIVER")
+        
+        if not all([sender_email, sender_password, receiver_email]):
+            print("Missing email configuration in environment variables")
+            return False
+        
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = "New Payment Application Submitted"
+        
+        # Add body to email
+        body = """
+        Hello,
+        
+        A new payment application has been submitted via the Slack bot.
+        Please find the attached Excel file with the payment details.
+        
+        Best regards,
+        Payment Bot
+        """
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Add attachment
+        if os.path.exists(attachment_path):
+            with open(attachment_path, "rb") as attachment:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(attachment.read())
+            
             encoders.encode_base64(part)
             part.add_header(
-                "Content-Disposition",
-                f"attachment; filename={os.path.basename(file_path)}",
+                'Content-Disposition',
+                f'attachment; filename= Payment_Data.xlsx'
             )
             msg.attach(part)
-    except FileNotFoundError:
-        print(f"Error: File {file_path} not found")
-        return False
-    except Exception as e:
-        print(f"Error attaching file: {e}")
-        return False
-
-    # Send the email using Gmail SMTP
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:  # Use SMTP_SSL for port 465
-            server.login(sender_email, sender_password)  # Log in using App Password
-            server.send_message(msg)  # Send the email
-            print(f"Email sent successfully to {receiver_email}!")
-            return True
-    except smtplib.SMTPAuthenticationError:
-        print("Error: Authentication failed. Check your email and app password.")
-        return False
-    except smtplib.SMTPException as e:
-        print(f"SMTP Error: {e}")
-        return False
+        else:
+            print(f"Attachment file not found: {attachment_path}")
+            return False
+        
+        # Gmail SMTP configuration
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()  # Enable security
+        server.login(sender_email, sender_password)
+        
+        # Send email
+        text = msg.as_string()
+        server.sendmail(sender_email, receiver_email, text)
+        server.quit()
+        
+        print("Email sent successfully!")
+        return True
+        
     except Exception as e:
         print(f"Error sending email: {e}")
         return False
 
-
 def send_notification_email(user_data):
     """Send a notification email without attachment for quick alerts"""
     # Load environment variables
-    sender_email = config("EMAIL_SENDER", default=None)
-    sender_password = config("EMAIL_PASSWORD", default=None)
-    receiver_email = config("EMAIL_RECEIVER", default=None)
+    sender_email = os.environ.get("EMAIL_SENDER", default=None)
+    sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
+    receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
 
     if not sender_email or not sender_password or not receiver_email:
         print("Error: Missing email environment variables.")
@@ -122,9 +120,9 @@ Please check the attached Excel file for complete records.
 # Test function for email configuration
 def test_email_config():
     """Test if email configuration is working"""
-    sender_email = config("EMAIL_SENDER", default=None)
-    sender_password = config("EMAIL_PASSWORD", default=None)
-    receiver_email = config("EMAIL_RECEIVER", default=None)
+    sender_email = os.environ.get("EMAIL_SENDER", default=None)
+    sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
+    receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
 
     print("Testing email configuration...")
     print(f"Sender: {sender_email}")
