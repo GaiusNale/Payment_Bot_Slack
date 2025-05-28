@@ -9,7 +9,6 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import requests
 import threading
-import time
 
 # Get environment variables
 def get_env(key, default=None):
@@ -56,27 +55,6 @@ def clear_user_data(user_id):
         del user_data[user_id]
     if user_id in user_states:
         del user_states[user_id]
-
-# Health check endpoint for keeping service alive
-@app.route("/health")
-def health_check():
-    return {"status": "healthy"}, 200
-
-# Keep-alive function to prevent service from sleeping
-def keep_alive():
-    """Ping service every 10 minutes to prevent sleep on free tier"""
-    base_url = get_env("RENDER_URL", "")  # Add your render URL to env vars
-    if not base_url:
-        return
-    
-    while True:
-        try:
-            requests.get(f"{base_url}/health", timeout=30)
-            print(f"Keep-alive ping sent at {datetime.now()}")
-            time.sleep(600)  # 10 minutes
-        except Exception as e:
-            print(f"Keep-alive ping failed: {e}")
-            time.sleep(600)
 
 # Handle home tab opening
 @app.event("app_home_opened")
@@ -372,11 +350,11 @@ def main():
     """Main function - always use HTTP mode for production"""
     print("⚡️ Slack bolt app is running in HTTP Mode!")
     
-    # Start keep-alive thread for free tier hosting
-    render_url = get_env("RENDER_URL", "")
-    if render_url:
-        threading.Thread(target=keep_alive, daemon=True).start()
-        print("Keep-alive service started")
+    # Remove keep-alive thread start
+    # render_url = get_env("RENDER_URL", "")
+    # if render_url:
+    #     threading.Thread(target=keep_alive, daemon=True).start()
+    #     print("Keep-alive service started")
     
     # Start the Flask app
     app.start(port=int(get_env("PORT", "3000")))
