@@ -14,8 +14,11 @@ import threading
 def get_env(key, default=None):
     return os.environ.get(key, default)
 
-# Initialize Slack app with bot token
-app = App(token=get_env("SLACK_BOT_TOKEN"))
+# Initialize Slack app with bot token and signing secret
+app = App(
+    token=get_env("SLACK_BOT_TOKEN"),
+    signing_secret=get_env("SLACK_SIGNING_SECRET")
+)
 slack_client = WebClient(token=get_env("SLACK_BOT_TOKEN"))
 
 # Define conversation states
@@ -356,13 +359,27 @@ def save_user_data(data, user_id):
 @app.middleware
 def log_request(logger, body, next):
     logger.debug(f"Request body: {body}")
-    return next()
+    try:
+        return next()
+    except Exception as e:
+        logger.error(f"Request processing error: {e}")
+        raise
     
 def main():
     """Main function - always use HTTP mode for production"""
     print("⚡️ Slack bolt app is running in HTTP Mode!")
     print(f"Bot Token: {'Set' if get_env('SLACK_BOT_TOKEN') else 'Not Set'}")
+    print(f"Signing Secret: {'Set' if get_env('SLACK_SIGNING_SECRET') else 'Not Set'}")
     print(f"Port: {get_env('PORT', '3000')}")
+    
+    # Validate required environment variables
+    if not get_env('SLACK_BOT_TOKEN'):
+        print("ERROR: SLACK_BOT_TOKEN is not set!")
+        return
+    
+    if not get_env('SLACK_SIGNING_SECRET'):
+        print("ERROR: SLACK_SIGNING_SECRET is not set!")
+        return
     
     # Start the Flask app
     app.start(port=int(get_env("PORT", "3000")))
