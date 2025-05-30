@@ -164,71 +164,84 @@ def get_last_submission(user_id):
         return None
 
 @app.message("")
-def handle_dm(message, say):
-    """Handle direct messages based on user state"""
+def handle_message(message, say):
+    """Handle messages in both DMs and channels where bot is mentioned"""
     user_id = message["user"]
     text = message["text"]
+    channel_type = message.get("channel_type", "")
     
     # Skip if message is from bot itself
     if message.get("bot_id"):
         return
     
-    state = get_user_state(user_id)
-    data = get_user_data(user_id)
+    # Debug logging - remove after testing
+    print(f"Message received from user {user_id}: '{text}'")
+    print(f"Channel type: {channel_type}")
+    print(f"Current state: {get_user_state(user_id)}")
     
-    # Process based on current state
-    if state == STATES["CHOICE"]:
-        user_reply = text.lower()
-        if user_reply == "full":
-            set_user_state(user_id, STATES["NAME"])
-            say("Please enter your name:")
-        elif user_reply == "update":
-            last_submission = get_last_submission(user_id)
-            if last_submission:
-                data["name"] = last_submission["Name"]
-                data["accountnumber"] = last_submission["Account Number"]
-                data["accountname"] = last_submission["Account Name"]
-                data["bank_name"] = last_submission["Bank Name"]
-                set_user_state(user_id, STATES["REASON"])
-                say("Please enter your new reason for payment:")
-            else:
-                say("Couldn't find your previous data. Please fill out the full form.")
+    # Handle both DMs (im) and mentions in channels
+    if channel_type == "im" or f"<@{app.client.auth_test()['user_id']}>" in text:
+        # Remove bot mention from text if present
+        if f"<@{app.client.auth_test()['user_id']}>" in text:
+            text = text.replace(f"<@{app.client.auth_test()['user_id']}>", "").strip()
+    
+        state = get_user_state(user_id)
+        data = get_user_data(user_id)
+        
+        # Process based on current state
+        if state == STATES["CHOICE"]:
+            user_reply = text.lower()
+            if user_reply == "full":
                 set_user_state(user_id, STATES["NAME"])
                 say("Please enter your name:")
-        else:
-            say("Invalid choice. Reply with 'Full' or 'Update'.")
-    
-    elif state == STATES["NAME"]:
-        data["name"] = text
-        set_user_state(user_id, STATES["REASON"])
-        say("Please enter your reason for payment:")
+            elif user_reply == "update":
+                last_submission = get_last_submission(user_id)
+                if last_submission:
+                    data["name"] = last_submission["Name"]
+                    data["accountnumber"] = last_submission["Account Number"]
+                    data["accountname"] = last_submission["Account Name"]
+                    data["bank_name"] = last_submission["Bank Name"]
+                    set_user_state(user_id, STATES["REASON"])
+                    say("Please enter your new reason for payment:")
+                else:
+                    say("Couldn't find your previous data. Please fill out the full form.")
+                    set_user_state(user_id, STATES["NAME"])
+                    say("Please enter your name:")
+            else:
+                say("Invalid choice. Reply with 'Full' or 'Update'.")
         
-    elif state == STATES["REASON"]:
-        data["reason"] = text
-        set_user_state(user_id, STATES["AMOUNT"])
-        say("Please enter the payment amount:")
-        
-    elif state == STATES["AMOUNT"]:
-        data["amount"] = text
-        set_user_state(user_id, STATES["ACCOUNT_NUM"])
-        say("Please enter account number:")
-        
-    elif state == STATES["ACCOUNT_NUM"]:
-        data["accountnumber"] = text
-        set_user_state(user_id, STATES["ACCOUNT_NAME"])
-        say("Please enter your account name:")
-        
-    elif state == STATES["ACCOUNT_NAME"]:
-        data["accountname"] = text
-        set_user_state(user_id, STATES["BANK_NAME"])
-        say("Please enter your bank name:")
-        
-    elif state == STATES["BANK_NAME"]:
-        data["bank_name"] = text
-        set_user_state(user_id, STATES["CONFIRM"])
-        
-        # Show confirmation message
-        confirmation_message = f"""Please confirm your application details:
+        elif state == STATES["NAME"]:
+            data["name"] = text
+            set_user_state(user_id, STATES["REASON"])
+            say("Please enter your reason for payment:")
+            print(f"User {user_id} moved to REASON state with name: {text}")  # Debug log
+            
+        elif state == STATES["REASON"]:
+            data["reason"] = text
+            set_user_state(user_id, STATES["AMOUNT"])
+            say("Please enter the payment amount:")
+            
+        elif state == STATES["AMOUNT"]:
+            data["amount"] = text
+            set_user_state(user_id, STATES["ACCOUNT_NUM"])
+            say("Please enter account number:")
+            
+        elif state == STATES["ACCOUNT_NUM"]:
+            data["accountnumber"] = text
+            set_user_state(user_id, STATES["ACCOUNT_NAME"])
+            say("Please enter your account name:")
+            
+        elif state == STATES["ACCOUNT_NAME"]:
+            data["accountname"] = text
+            set_user_state(user_id, STATES["BANK_NAME"])
+            say("Please enter your bank name:")
+            
+        elif state == STATES["BANK_NAME"]:
+            data["bank_name"] = text
+            set_user_state(user_id, STATES["CONFIRM"])
+            
+            # Show confirmation message
+            confirmation_message = f"""Please confirm your application details:
 
 *Name:* {data['name']}
 *Reason:* {data['reason']}
@@ -238,40 +251,40 @@ def handle_dm(message, say):
 *Bank Name:* {data['bank_name']}
 
 Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
-        
-        say(confirmation_message)
-        
-    elif state == STATES["CONFIRM"]:
-        user_reply = text.lower()
-        
-        if user_reply == "yes":
-            # Save to CSV and Excel
-            save_result = save_user_data(data, user_id)
             
-            if save_result["success"]:
-                if save_result["email_sent"] and save_result["file_uploaded"]:
-                    say("Your application has been submitted successfully, the accountant has been notified, and the payment data has been sent to their channel. ✅")
-                elif save_result["email_sent"]:
-                    say("Your application was saved and the accountant was notified via email, but there was an error sending the file to their channel. Please contact support.")
-                elif save_result["file_uploaded"]:
-                    say("Your application was saved and the payment data was sent to the accountant's channel, but there was an error notifying them via email. Please contact support.")
+            say(confirmation_message)
+            
+        elif state == STATES["CONFIRM"]:
+            user_reply = text.lower()
+            
+            if user_reply == "yes":
+                # Save to CSV and Excel
+                save_result = save_user_data(data, user_id)
+                
+                if save_result["success"]:
+                    if save_result["email_sent"] and save_result["file_uploaded"]:
+                        say("Your application has been submitted successfully, the accountant has been notified, and the payment data has been sent to their channel. ✅")
+                    elif save_result["email_sent"]:
+                        say("Your application was saved and the accountant was notified via email, but there was an error sending the file to their channel. Please contact support.")
+                    elif save_result["file_uploaded"]:
+                        say("Your application was saved and the payment data was sent to the accountant's channel, but there was an error notifying them via email. Please contact support.")
+                    else:
+                        say("Your application was saved, but there was an error notifying the accountant and sending the file. Please contact support.")
                 else:
-                    say("Your application was saved, but there was an error notifying the accountant and sending the file. Please contact support.")
+                    say("An error occurred while saving your data. Please try again.")
+                
+                clear_user_data(user_id)
+                
+            elif user_reply == "no":
+                clear_user_data(user_id)
+                say("Application canceled. Use `/form` to fill the form again.")
+                
             else:
-                say("An error occurred while saving your data. Please try again.")
-            
-            clear_user_data(user_id)
-            
-        elif user_reply == "no":
-            clear_user_data(user_id)
-            say("Application canceled. Use `/form` to fill the form again.")
-            
+                say("Invalid response. Please reply with 'Yes' or 'No'.")
+        
         else:
-            say("Invalid response. Please reply with 'Yes' or 'No'.")
-    
-    else:
-        # User is in IDLE state
-        say("Hi! Use `/form` to start a payment application or `/start` for more information.")
+            # User is in IDLE state
+            say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
 def csv_to_excel(csv_file, excel_file):
     """Convert CSV to Excel format"""
