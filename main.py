@@ -56,6 +56,12 @@ def clear_user_data(user_id):
     if user_id in user_states:
         del user_states[user_id]
 
+# Add URL verification handler
+@app.event("url_verification")
+def handle_url_verification(body, ack):
+    """Handle Slack URL verification challenge"""
+    ack(body["challenge"])
+
 # Handle home tab opening
 @app.event("app_home_opened")
 def update_home_tab(client, event, logger):
@@ -345,16 +351,18 @@ def save_user_data(data, user_id):
             "email_sent": False,
             "file_uploaded": False
         }
+
+# Add a simple health check endpoint
+@app.middleware
+def log_request(logger, body, next):
+    logger.debug(f"Request body: {body}")
+    return next()
     
 def main():
     """Main function - always use HTTP mode for production"""
     print("⚡️ Slack bolt app is running in HTTP Mode!")
-    
-    # Remove keep-alive thread start
-    # render_url = get_env("RENDER_URL", "")
-    # if render_url:
-    #     threading.Thread(target=keep_alive, daemon=True).start()
-    #     print("Keep-alive service started")
+    print(f"Bot Token: {'Set' if get_env('SLACK_BOT_TOKEN') else 'Not Set'}")
+    print(f"Port: {get_env('PORT', '3000')}")
     
     # Start the Flask app
     app.start(port=int(get_env("PORT", "3000")))
