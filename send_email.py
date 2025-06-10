@@ -7,68 +7,68 @@ from email import encoders
 import datetime
 import io
 
-def send_email_via_gmail(attachment_path):
-    """Send email with Excel attachment via Gmail SMTP (file path version)"""
-    try:
-        # Email configuration from environment variables
-        sender_email = os.environ.get("EMAIL_SENDER")
-        sender_password = os.environ.get("EMAIL_PASSWORD") 
-        receiver_email = os.environ.get("EMAIL_RECEIVER")
+# def send_email_via_gmail(attachment_path):
+#     """Send email with Excel attachment via Gmail SMTP (file path version)"""
+#     try:
+#         # Email configuration from environment variables
+#         sender_email = os.environ.get("EMAIL_SENDER")
+#         sender_password = os.environ.get("EMAIL_PASSWORD") 
+#         receiver_email = os.environ.get("EMAIL_RECEIVER")
         
-        if not all([sender_email, sender_password, receiver_email]):
-            print("Missing email configuration in environment variables")
-            return False
+#         if not all([sender_email, sender_password, receiver_email]):
+#             print("Missing email configuration in environment variables")
+#             return False
         
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = receiver_email
-        msg['Subject'] = "New Payment Application Submitted"
+#         # Create message
+#         msg = MIMEMultipart()
+#         msg['From'] = sender_email
+#         msg['To'] = receiver_email
+#         msg['Subject'] = "New Payment Application Submitted"
         
-        # Add body to email
-        body = """
-        Hello,
+#         # Add body to email
+#         body = """
+#         Hello,
         
-        A new payment application has been submitted via the Slack bot.
-        Please find the attached Excel file with the payment details.
+#         A new payment application has been submitted via the payment bot.
+#         Please find the attached Excel file with the payment details. 
         
-        Best regards,
-        Payment Bot
-        """
-        msg.attach(MIMEText(body, 'plain'))
+#         Best regards,
+#         Payment Bot
+#         """
+#         msg.attach(MIMEText(body, 'plain'))
         
-        # Add attachment
-        if os.path.exists(attachment_path):
-            with open(attachment_path, "rb") as attachment:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(attachment.read())
+#         # Add attachment
+#         if os.path.exists(attachment_path):
+#             with open(attachment_path, "rb") as attachment:
+#                 part = MIMEBase('application', 'octet-stream')
+#                 part.set_payload(attachment.read())
             
-            encoders.encode_base64(part)
-            part.add_header(
-                'Content-Disposition',
-                f'attachment; filename= Payment_Data.xlsx'
-            )
-            msg.attach(part)
-        else:
-            print(f"Attachment file not found: {attachment_path}")
-            return False
+#             encoders.encode_base64(part)
+#             part.add_header(
+#                 'Content-Disposition',
+#                 f'attachment; filename= Payment_Data.xlsx'
+#             )
+#             msg.attach(part)
+#         else:
+#             print(f"Attachment file not found: {attachment_path}")
+#             return False
         
-        # Gmail SMTP configuration
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()  # Enable security
-        server.login(sender_email, sender_password)
+#         # Gmail SMTP configuration
+#         server = smtplib.SMTP('smtp.gmail.com', 587)
+#         server.starttls()  # Enable security
+#         server.login(sender_email, sender_password)
         
-        # Send email
-        text = msg.as_string()
-        server.sendmail(sender_email, receiver_email, text)
-        server.quit()
+#         # Send email
+#         text = msg.as_string()
+#         server.sendmail(sender_email, receiver_email, text)
+#         server.quit()
         
-        print("Email sent successfully!")
-        return True
+#         print("Email sent successfully!")
+#         return True
         
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+#     except Exception as e:
+#         print(f"Error sending email: {e}")
+#         return False
 
 def send_form_data_email(user_data):
     """Send form data directly via email (no attachment)"""
