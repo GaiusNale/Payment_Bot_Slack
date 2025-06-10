@@ -176,7 +176,6 @@ Please check the attached Excel file for complete records.
         print(f"Error sending notification: {e}")
         return False
 
-
 # Test function for email configuration
 def test_email_config():
     """Test if email configuration is working"""
@@ -202,7 +201,6 @@ def test_email_config():
     except Exception as e:
         print(f"Email configuration error: {e}")
         return False
-
 
 if __name__ == "__main__":
     # Test the email configuration when running directly

@@ -241,15 +241,15 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
                 
                 if save_result["success"]:
                     if save_result["email_sent"] and save_result["file_uploaded"]:
-                        say("Your application has been submitted successfully, the accountant has been notified, and the payment data has been sent to their channel. ✅")
+                        say("Your application has been submitted successfully! ✅\n• Excel file sent to accountant via email\n• Payment data posted to Slack channel")
                     elif save_result["email_sent"]:
-                        say("Your application was saved and the accountant was notified via email, but there was an error sending the file to their channel. Please contact support.")
+                        say("Your application was saved and sent via email, but there was an error uploading to the Slack channel. Please contact support.")
                     elif save_result["file_uploaded"]:
-                        say("Your application was saved and the payment data was sent to the accountant's channel, but there was an error notifying them via email. Please contact support.")
+                        say("Your application was saved and posted to the Slack channel, but there was an error sending the email. Please contact support.")
                     else:
-                        say("Your application was saved, but there was an error notifying the accountant and sending the file. Please contact support.")
+                        say("Your application was saved, but there were errors with both email and Slack upload. Please contact support.")
                 else:
-                    say("An error occurred while saving your data. Please try again.")
+                    say("An error occurred while processing your application. Please try again.")
                 
                 clear_user_data(user_id)
                 
