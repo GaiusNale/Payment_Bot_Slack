@@ -141,44 +141,6 @@ def get_last_submission(user_id):
     """Return None - skip retrieving previous submissions"""
     return None
 
-def create_excel_file(user_data_list):
-    """Create Excel file in memory and return as BytesIO object"""
-    try:
-        # Create DataFrame from user data
-        df = pd.DataFrame(user_data_list)
-        
-        # Create BytesIO object to store Excel file in memory
-        excel_buffer = io.BytesIO()
-        
-        # Write DataFrame to Excel file in memory
-        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Payment_Applications', index=False)
-            
-            # Auto-adjust column widths
-            worksheet = writer.sheets['Payment_Applications']
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                # Adjust width with some padding
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
-        
-        # Reset buffer position to beginning
-        excel_buffer.seek(0)
-        
-        print("Excel file created successfully in memory")
-        return excel_buffer
-        
-    except Exception as e:
-        print(f"Error creating Excel file: {e}")
-        return None
-
 @app.message("")
 def handle_message(message, say):
     """Handle messages in both DMs and channels where bot is mentioned"""
@@ -303,7 +265,7 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
 def save_user_data(data, user_id):
-    """Process and send user data via email and Slack with Excel file"""
+    """Send user data directly via email without saving"""
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
@@ -318,33 +280,28 @@ def save_user_data(data, user_id):
     }
     
     try:
-        # Create Excel file in memory
-        excel_file = create_excel_file([user_data_with_timestamp])
+        # Send email with form data
+        email_sent = send_email.send_form_data_email(user_data_with_timestamp)
         
-        # Send email with Excel attachment
-        email_sent = send_email.send_form_data_with_excel(user_data_with_timestamp, excel_file)
-        
-        # Send to Slack channel with file upload
-        if excel_file:
-            excel_file.seek(0)  # Reset file pointer for Slack upload
-        channel_sent = send_to_slack_channel_with_file(user_data_with_timestamp, excel_file)
+        # Send to Slack channel as text message
+        channel_sent = send_to_slack_channel(user_data_with_timestamp)
         
         return {
             "success": email_sent and channel_sent,
             "email_sent": email_sent,
-            "file_uploaded": channel_sent
+            "file_uploaded": channel_sent  # Rename for consistency
         }
         
     except Exception as e:
-        print(f"Error processing user data: {e}")
+        print(f"Error sending data: {e}")
         return {
             "success": False,
             "email_sent": False,
             "file_uploaded": False
         }
 
-def send_to_slack_channel_with_file(user_data, excel_file):
-    """Send payment data and Excel file to Slack channel"""
+def send_to_slack_channel(user_data):
+    """Send payment data as formatted message to Slack channel"""
     try:
         target_channel = get_env("CHANNEL_ID")
         if not target_channel:
@@ -365,38 +322,14 @@ def send_to_slack_channel_with_file(user_data, excel_file):
 
 _Submitted via Payment Bot_"""
         
-        # Send message to channel
-        message_result = slack_client.chat_postMessage(
+        # Send to channel
+        result = slack_client.chat_postMessage(
             channel=target_channel,
             text=message
         )
         
-        # Upload Excel file if available
-        file_uploaded = True
-        if excel_file:
-            try:
-                excel_file.seek(0)  # Reset file pointer
-                filename = f"payment_application_{user_data['User ID']}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-                
-                file_result = slack_client.files_upload_v2(
-                    channel=target_channel,
-                    file=excel_file.getvalue(),
-                    filename=filename,
-                    title="Payment Application Data",
-                    initial_comment="📊 Excel file containing the payment application details"
-                )
-                
-                print(f"Excel file uploaded to Slack channel: {filename}")
-                
-            except SlackApiError as e:
-                print(f"Error uploading file to Slack: {e.response['error']}")
-                file_uploaded = False
-            except Exception as e:
-                print(f"Error uploading Excel file to Slack: {e}")
-                file_uploaded = False
-        
         print(f"Message sent to Slack channel {target_channel}")
-        return message_result["ok"] and file_uploaded
+        return result["ok"]
         
     except SlackApiError as e:
         print(f"Error sending message to Slack: {e.response['error']}")
