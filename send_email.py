@@ -70,8 +70,8 @@ def send_email_via_gmail(attachment_path):
         print(f"Error sending email: {e}")
         return False
 
-def send_email_with_buffer(excel_buffer, user_data):
-    """Send email with Excel attachment from memory buffer"""
+def send_form_data_email(user_data):
+    """Send form data directly via email (no attachment)"""
     try:
         # Email configuration from environment variables
         sender_email = os.environ.get("EMAIL_SENDER")
@@ -86,39 +86,31 @@ def send_email_with_buffer(excel_buffer, user_data):
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = receiver_email
-        msg['Subject'] = f"New Payment Application - {user_data.get('Name', 'Unknown')}"
+        msg['Subject'] = f"Payment Application - {user_data.get('Name', 'Unknown')}"
         
-        # Add body to email with user details
+        # Add body to email with all form data
         body = f"""
-        Hello,
+        New Payment Application Submitted
         
-        A new payment application has been submitted via the Slack bot.
+        Application Details:
+        ==================
+        Timestamp: {user_data.get('Timestamp', 'N/A')}
+        User ID: {user_data.get('User ID', 'N/A')}
+        Name: {user_data.get('Name', 'N/A')}
+        Reason: {user_data.get('Reason', 'N/A')}
+        Amount: ₦{user_data.get('Amount', 'N/A')}
+        Account Number: {user_data.get('Account Number', 'N/A')}
+        Account Name: {user_data.get('Account Name', 'N/A')}
+        Bank Name: {user_data.get('Bank Name', 'N/A')}
         
-        Details:
-        - Name: {user_data.get('Name', 'N/A')}
-        - Reason: {user_data.get('Reason', 'N/A')}
-        - Amount: ₦{user_data.get('Amount', 'N/A')}
-        - Account Number: {user_data.get('Account Number', 'N/A')}
-        - Account Name: {user_data.get('Account Name', 'N/A')}
-        - Bank Name: {user_data.get('Bank Name', 'N/A')}
-        - Submitted: {user_data.get('Timestamp', 'N/A')}
+        Submitted via: Slack Payment Bot
         
-        Please find the attached Excel file with all payment records.
+        Please process this payment request accordingly.
         
         Best regards,
-        Payment Bot
+        Payment Bot System
         """
         msg.attach(MIMEText(body, 'plain'))
-        
-        # Add Excel attachment from buffer
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(excel_buffer.getvalue())
-        encoders.encode_base64(part)
-        part.add_header(
-            'Content-Disposition',
-            f'attachment; filename=Payment_Data_{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
-        )
-        msg.attach(part)
         
         # Gmail SMTP configuration
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -130,11 +122,11 @@ def send_email_with_buffer(excel_buffer, user_data):
         server.sendmail(sender_email, receiver_email, text)
         server.quit()
         
-        print("Email sent successfully with Excel attachment!")
+        print("Form data email sent successfully!")
         return True
         
     except Exception as e:
-        print(f"Error sending email: {e}")
+        print(f"Error sending form data email: {e}")
         return False
 
 def send_notification_email(user_data):

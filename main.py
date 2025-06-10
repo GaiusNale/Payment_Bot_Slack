@@ -35,8 +35,6 @@ STATES = {
 # Store user conversation states
 user_states = {}
 user_data = {}
-# In-memory storage for CSV data
-payment_records = []  # Store all payment records in memory
 
 def get_user_state(user_id):
     """Get the current state for a user"""
@@ -136,26 +134,12 @@ def handle_cancel_command(ack, say, command):
     say("Application canceled. Use `/form` to fill the form again.")
 
 def check_user_submission(user_id):
-    """Check if user has previously submitted a form (in-memory)"""
-    try:
-        for record in payment_records:
-            if record.get("User ID") == user_id:
-                return True
-        return False
-    except Exception as e:
-        print(f"Error checking user submission: {e}")
-        return False
+    """Always return False - skip checking previous submissions"""
+    return False
     
 def get_last_submission(user_id):
-    """Retrieve the last submission for a user from memory"""
-    try:
-        user_submissions = [record for record in payment_records if record.get("User ID") == user_id]
-        if user_submissions:
-            return user_submissions[-1]  # Return most recent
-        return None
-    except Exception as e:
-        print(f"Error retrieving last submission: {e}")
-        return None
+    """Return None - skip retrieving previous submissions"""
+    return None
 
 @app.message("")
 def handle_message(message, say):
@@ -280,24 +264,8 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             # User is in IDLE state
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
-def create_excel_in_memory():
-    """Create Excel file in memory from payment records"""
-    try:
-        if not payment_records:
-            return None
-        
-        df = pd.DataFrame(payment_records)
-        excel_buffer = io.BytesIO()
-        df.to_excel(excel_buffer, index=False)
-        excel_buffer.seek(0)
-        return excel_buffer
-    except Exception as e:
-        print(f"Error creating Excel in memory: {e}")
-        return None
-
 def save_user_data(data, user_id):
-    """Save user data to memory and send Excel file to Slack channel and email"""
-    target_channel = get_env("CHANNEL_ID")
+    """Send user data directly via email without saving"""
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
@@ -312,46 +280,63 @@ def save_user_data(data, user_id):
     }
     
     try:
-        # Add to in-memory storage
-        payment_records.append(user_data_with_timestamp)
+        # Send email with form data
+        email_sent = send_email.send_form_data_email(user_data_with_timestamp)
         
-        # Create Excel file in memory
-        excel_buffer = create_excel_in_memory()
-        
-        file_uploaded = False
-        email_sent = False
-        
-        if excel_buffer:
-            # Upload Excel file to Slack channel
-            try:
-                result = slack_client.files_upload_v2(
-                    channel=target_channel,
-                    file=excel_buffer.getvalue(),
-                    filename="Payment_Data.xlsx",
-                    title=f"Payment Data - {user_data_with_timestamp['Timestamp']}"
-                )
-                file_uploaded = result["ok"]
-                print(f"File uploaded to Slack channel {target_channel}")
-            except SlackApiError as e:
-                print(f"Error uploading file to Slack: {e.response['error']}")
-            
-            # Send email with Excel attachment
-            excel_buffer.seek(0)  # Reset buffer position
-            email_sent = send_email.send_email_with_buffer(excel_buffer, user_data_with_timestamp)
+        # Send to Slack channel as text message
+        channel_sent = send_to_slack_channel(user_data_with_timestamp)
         
         return {
-            "success": file_uploaded and email_sent,
+            "success": email_sent and channel_sent,
             "email_sent": email_sent,
-            "file_uploaded": file_uploaded
+            "file_uploaded": channel_sent  # Rename for consistency
         }
         
     except Exception as e:
-        print(f"Error saving data: {e}")
+        print(f"Error sending data: {e}")
         return {
             "success": False,
             "email_sent": False,
             "file_uploaded": False
         }
+
+def send_to_slack_channel(user_data):
+    """Send payment data as formatted message to Slack channel"""
+    try:
+        target_channel = get_env("CHANNEL_ID")
+        if not target_channel:
+            print("No CHANNEL_ID configured")
+            return False
+        
+        # Format message
+        message = f"""📋 *New Payment Application*
+
+*Timestamp:* {user_data['Timestamp']}
+*User ID:* {user_data['User ID']}
+*Name:* {user_data['Name']}
+*Reason:* {user_data['Reason']}
+*Amount:* ₦{user_data['Amount']}
+*Account Number:* {user_data['Account Number']}
+*Account Name:* {user_data['Account Name']}
+*Bank Name:* {user_data['Bank Name']}
+
+_Submitted via Payment Bot_"""
+        
+        # Send to channel
+        result = slack_client.chat_postMessage(
+            channel=target_channel,
+            text=message
+        )
+        
+        print(f"Message sent to Slack channel {target_channel}")
+        return result["ok"]
+        
+    except SlackApiError as e:
+        print(f"Error sending message to Slack: {e.response['error']}")
+        return False
+    except Exception as e:
+        print(f"Error sending to Slack channel: {e}")
+        return False
 
 # Add a simple health check endpoint
 @app.middleware
