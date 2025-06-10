@@ -9,6 +9,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import requests
 import threading
+import io  # Added for in-memory file handling
 
 # Get environment variables
 def get_env(key, default=None):
@@ -34,6 +35,8 @@ STATES = {
 # Store user conversation states
 user_states = {}
 user_data = {}
+# In-memory storage for CSV data
+payment_records = []  # Store all payment records in memory
 
 def get_user_state(user_id):
     """Get the current state for a user"""
@@ -133,12 +136,10 @@ def handle_cancel_command(ack, say, command):
     say("Application canceled. Use `/form` to fill the form again.")
 
 def check_user_submission(user_id):
-    """Check if user has previously submitted a form"""
-    csv_file_path = "payment_data.csv"
+    """Check if user has previously submitted a form (in-memory)"""
     try:
-        if os.path.isfile(csv_file_path):
-            df = pd.read_csv(csv_file_path)
-            if "User ID" in df.columns and user_id in df["User ID"].values:
+        for record in payment_records:
+            if record.get("User ID") == user_id:
                 return True
         return False
     except Exception as e:
@@ -146,15 +147,11 @@ def check_user_submission(user_id):
         return False
     
 def get_last_submission(user_id):
-    """Retrieve the last submission for a user from CSV"""
-    csv_file_path = "payment_data.csv"
+    """Retrieve the last submission for a user from memory"""
     try:
-        if os.path.isfile(csv_file_path):
-            df = pd.read_csv(csv_file_path)
-            if "User ID" in df.columns:
-                user_rows = df[df["User ID"] == user_id]
-                if not user_rows.empty:
-                    return user_rows.iloc[-1].to_dict()  # Get the most recent submission
+        user_submissions = [record for record in payment_records if record.get("User ID") == user_id]
+        if user_submissions:
+            return user_submissions[-1]  # Return most recent
         return None
     except Exception as e:
         print(f"Error retrieving last submission: {e}")
@@ -255,7 +252,7 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             user_reply = text.lower()
             
             if user_reply == "yes":
-                # Save to CSV and Excel
+                # Save to in-memory storage and send files
                 save_result = save_user_data(data, user_id)
                 
                 if save_result["success"]:
@@ -283,30 +280,29 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             # User is in IDLE state
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
-def csv_to_excel(csv_file, excel_file):
-    """Convert CSV to Excel format"""
+def create_excel_in_memory():
+    """Create Excel file in memory from payment records"""
     try:
-        df = pd.read_csv(csv_file)
-        df.to_excel(excel_file, index=False)
-        print(f"Converted {csv_file} to {excel_file}")
-        return True
-    except FileNotFoundError:
-        print(f"Error: {csv_file} not found")
-        return False
+        if not payment_records:
+            return None
+        
+        df = pd.DataFrame(payment_records)
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        return excel_buffer
     except Exception as e:
-        print(f"Error: {e}")
-        return False
+        print(f"Error creating Excel in memory: {e}")
+        return None
 
 def save_user_data(data, user_id):
-    """Save user data to CSV and Excel files and upload to accountant's Slack channel"""
-    csv_file_path = "payment_data.csv"
-    excel_file_path = "payment_data.xlsx"
+    """Save user data to memory and send Excel file to Slack channel and email"""
     target_channel = get_env("CHANNEL_ID")
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "User ID": user_id,  # Add user ID
+        "User ID": user_id,
         "Name": data["name"],
         "Reason": data["reason"],
         "Amount": data["amount"],
@@ -316,42 +312,35 @@ def save_user_data(data, user_id):
     }
     
     try:
-        file_exists = os.path.isfile(csv_file_path)
+        # Add to in-memory storage
+        payment_records.append(user_data_with_timestamp)
         
-        # Write to CSV
-        with open(csv_file_path, "a", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=user_data_with_timestamp.keys())
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(user_data_with_timestamp)
+        # Create Excel file in memory
+        excel_buffer = create_excel_in_memory()
         
-        # Convert to Excel
-        excel_converted = csv_to_excel(csv_file_path, excel_file_path)
-        
-        # Upload Excel file to the accountant's Slack channel
         file_uploaded = False
-        if excel_converted:
+        email_sent = False
+        
+        if excel_buffer:
+            # Upload Excel file to Slack channel
             try:
-                with open(excel_file_path, "rb") as file:
-                    result = slack_client.files_upload_v2(
-                        channel=target_channel,
-                        file=file,
-                        filename="Payment_Data.xlsx",
-                        title=f"Payment Data - {user_data_with_timestamp['Timestamp']}"
-                    )
-                    file_uploaded = result["ok"]
-                    print(f"File uploaded to Slack channel {target_channel}")
+                result = slack_client.files_upload_v2(
+                    channel=target_channel,
+                    file=excel_buffer.getvalue(),
+                    filename="Payment_Data.xlsx",
+                    title=f"Payment Data - {user_data_with_timestamp['Timestamp']}"
+                )
+                file_uploaded = result["ok"]
+                print(f"File uploaded to Slack channel {target_channel}")
             except SlackApiError as e:
                 print(f"Error uploading file to Slack: {e.response['error']}")
-        
-        # Send email if Excel conversion succeeded
-        email_sent = False
-        if excel_converted:
-            email_sent = send_email.send_email_via_gmail(excel_file_path)
+            
+            # Send email with Excel attachment
+            excel_buffer.seek(0)  # Reset buffer position
+            email_sent = send_email.send_email_with_buffer(excel_buffer, user_data_with_timestamp)
         
         return {
-            "success": excel_converted and file_uploaded,
-            "excel_converted": excel_converted,
+            "success": file_uploaded and email_sent,
             "email_sent": email_sent,
             "file_uploaded": file_uploaded
         }
@@ -360,7 +349,6 @@ def save_user_data(data, user_id):
         print(f"Error saving data: {e}")
         return {
             "success": False,
-            "excel_converted": False,
             "email_sent": False,
             "file_uploaded": False
         }
