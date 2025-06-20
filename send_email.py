@@ -73,20 +73,40 @@ def send_form_data_with_excel(user_data, excel_file):
         sender_email = os.environ.get("EMAIL_SENDER")
         sender_password = os.environ.get("EMAIL_PASSWORD") 
         receiver_email = os.environ.get("EMAIL_RECEIVER")
+        receiver_email2 = os.environ.get("EMAIL_RECEIVER2")  # Second recipient
         
         if not all([sender_email, sender_password, receiver_email]):
             print("Missing email configuration in environment variables")
             return False
         
+        # Check amount threshold (30,000 naira)
+        try:
+            amount_str = str(user_data.get('Amount', '0')).replace(',', '').replace('₦', '')
+            amount_value = float(amount_str)
+            send_to_second_recipient = amount_value > 30000
+        except (ValueError, TypeError):
+            amount_value = 0
+            send_to_second_recipient = False
+        
+        # Determine recipients
+        recipients = [receiver_email]
+        if send_to_second_recipient and receiver_email2:
+            recipients.append(receiver_email2)
+            print(f"Amount ₦{amount_value:,.2f} exceeds threshold - sending to both recipients")
+        
         # Create message
         msg = MIMEMultipart()
         msg['From'] = sender_email
-        msg['To'] = receiver_email
-        msg['Subject'] = f"Payment Application - {user_data.get('Name', 'Unknown')} (with Excel)"
+        msg['To'] = ", ".join(recipients)  # Multiple recipients
+        
+        # Add priority flag for high amounts
+        subject_prefix = "[HIGH AMOUNT] " if send_to_second_recipient else ""
+        msg['Subject'] = f"{subject_prefix}Payment Application - {user_data.get('Name', 'Unknown')} (with Excel)"
         
         # Add body with form data
         body = f"""
         New Payment Application Submitted
+        {'⚠️  HIGH AMOUNT ALERT ⚠️' if send_to_second_recipient else ''}
         
         Application Details:
         ==================
@@ -100,6 +120,8 @@ def send_form_data_with_excel(user_data, excel_file):
         Bank Name: {user_data.get('Bank Name', 'N/A')}
         
         Submitted via: Slack Payment Bot
+        
+        {'This payment exceeds ₦30,000 and requires additional approval.' if send_to_second_recipient else ''}
         
         Please find the Excel file attached with the payment application details.
         
@@ -137,75 +159,30 @@ def send_form_data_with_excel(user_data, excel_file):
         server.starttls()  # Enable security
         server.login(sender_email, sender_password)
         
-        # Send email
+        # Send email to all recipients
         text = msg.as_string()
-        server.sendmail(sender_email, receiver_email, text)
+        server.sendmail(sender_email, recipients, text)
         server.quit()
         
-        print("Email with Excel attachment sent successfully!")
+        print(f"Email sent successfully to {len(recipients)} recipient(s)!")
         return True
         
     except Exception as e:
         print(f"Error sending email with Excel: {e}")
         return False
 
-def send_notification_email(user_data):
-    """Send a notification email without attachment for quick alerts"""
-    # Load environment variables
-    sender_email = os.environ.get("EMAIL_SENDER", default=None)
-    sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
-    receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
 
-    if not sender_email or not sender_password or not receiver_email:
-        print("Error: Missing email environment variables.")
-        return False
-
-    # Email content with user details
-    subject = f"New Payment Request - {user_data.get('name', 'Unknown')}"
-    body = f"""New payment application received:
-
-Name: {user_data.get('name', 'N/A')}
-Email: {user_data.get('email', 'N/A')}
-Reason: {user_data.get('reason', 'N/A')}
-Amount: ₦{user_data.get('amount', 'N/A')}
-Account Number: {user_data.get('accountnumber', 'N/A')}
-Account Name: {user_data.get('accountname', 'N/A')}
-Bank Name: {user_data.get('bank_name', 'N/A')}
-
-Submitted via: Slack Bot
-Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-Please check the attached Excel file for complete records.
-"""
-
-    # Create the email
-    msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
-    # Send the email
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
-            print("Notification email sent successfully!")
-            return True
-    except Exception as e:
-        print(f"Error sending notification: {e}")
-        return False
-
-# Test function for email configuration
 def test_email_config():
     """Test if email configuration is working"""
     sender_email = os.environ.get("EMAIL_SENDER", default=None)
     sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
     receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
+    receiver_email2 = os.environ.get("EMAIL_RECEIVER2", default=None)  # Test second recipient
 
     print("Testing email configuration...")
     print(f"Sender: {sender_email}")
-    print(f"Receiver: {receiver_email}")
+    print(f"Receiver 1: {receiver_email}")
+    print(f"Receiver 2: {receiver_email2 if receiver_email2 else 'Not configured'}")  # Show second recipient status
     print(f"Password: {'*' * len(sender_password) if sender_password else 'Not set'}")
 
     if not all([sender_email, sender_password, receiver_email]):
