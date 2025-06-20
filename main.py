@@ -344,15 +344,42 @@ def save_user_data(data, user_id):
         }
 
 def send_to_slack_channel_with_file(user_data, excel_file):
-    """Send payment data and Excel file to Slack channel"""
+    """Send payment data and Excel file to Slack channel with user tagging"""
     try:
         target_channel = get_env("CHANNEL_ID")
         if not target_channel:
             print("No CHANNEL_ID configured")
             return False
         
-        # Format message
-        message = f"""📋 *New Payment Application*
+        # Get user IDs for tagging
+        recipient1_id = get_env("SLACK_USER_ID_1")  # Primary recipient
+        recipient2_id = get_env("SLACK_USER_ID_2")  # Secondary recipient for high amounts
+        
+        # Check amount threshold (30,000 naira)
+        try:
+            amount_str = str(user_data.get('Amount', '0')).replace(',', '').replace('₦', '')
+            amount_value = float(amount_str)
+            is_high_amount = amount_value > 30000
+        except (ValueError, TypeError):
+            amount_value = 0
+            is_high_amount = False
+        
+        # Build tag list
+        tags = []
+        if recipient1_id:
+            tags.append(f"<@{recipient1_id}>")
+        
+        if is_high_amount and recipient2_id:
+            tags.append(f"<@{recipient2_id}>")
+            print(f"High amount detected (₦{amount_value:,.2f}) - tagging both recipients")
+        
+        # Create tag string
+        tag_string = " ".join(tags) if tags else ""
+        
+        # Format message with tags
+        priority_indicator = "🚨 **HIGH AMOUNT ALERT** 🚨\n" if is_high_amount else ""
+        
+        message = f"""{priority_indicator}📋 *New Payment Application*
 
 *Timestamp:* {user_data['Timestamp']}
 *User ID:* {user_data['User ID']}
@@ -363,9 +390,10 @@ def send_to_slack_channel_with_file(user_data, excel_file):
 *Account Name:* {user_data['Account Name']}
 *Bank Name:* {user_data['Bank Name']}
 
-_Submitted via Payment Bot_
+{tag_string}
+{f"⚠️ This payment exceeds ₦30,000 threshold" if is_high_amount else ""}
 
-@U0744LWRM0S """
+_Submitted via Payment Bot_"""
         
         # Send message to channel
         message_result = slack_client.chat_postMessage(
@@ -385,7 +413,7 @@ _Submitted via Payment Bot_
                     file=excel_file.getvalue(),
                     filename=filename,
                     title="Payment Application Data",
-                    initial_comment="📊 Excel file containing the payment application details"
+                    initial_comment=f"📊 Excel file containing the payment application details {tag_string}"
                 )
                 
                 print(f"Excel file uploaded to Slack channel: {filename}")
@@ -397,7 +425,7 @@ _Submitted via Payment Bot_
                 print(f"Error uploading Excel file to Slack: {e}")
                 file_uploaded = False
         
-        print(f"Message sent to Slack channel {target_channel}")
+        print(f"Message sent to Slack channel {target_channel} with tags: {tag_string}")
         return message_result["ok"] and file_uploaded
         
     except SlackApiError as e:
