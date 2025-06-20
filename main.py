@@ -363,7 +363,9 @@ def send_to_slack_channel_with_file(user_data, excel_file):
 *Account Name:* {user_data['Account Name']}
 *Bank Name:* {user_data['Bank Name']}
 
-_Submitted via Payment Bot_"""
+_Submitted via Payment Bot_
+
+@U0744LWRM0S """
         
         # Send message to channel
         message_result = slack_client.chat_postMessage(
