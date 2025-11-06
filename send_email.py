@@ -49,15 +49,10 @@ def send_form_data_email(user_data):
         """
         msg.attach(MIMEText(body, 'plain'))
         
-        # Zoho SMTP configuration
-        server = smtplib.SMTP('smtp.zoho.com', 587)  # Changed from Gmail
-        server.starttls()
-        server.login(sender_email, sender_password)
-        
-        # Send email
-        text = msg.as_string()
-        server.sendmail(sender_email, receiver_email, text)
-        server.quit()
+        # ✅ Zoho SMTP SSL configuration
+        with smtplib.SMTP_SSL('smtppro.zoho.com', 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
         
         print("Form data email sent successfully!")
         return True
@@ -65,6 +60,7 @@ def send_form_data_email(user_data):
     except Exception as e:
         print(f"Error sending form data email: {e}")
         return False
+
 
 def send_form_data_with_excel(user_data, excel_file):
     """Send form data via email with Excel attachment"""
@@ -134,32 +130,21 @@ def send_form_data_with_excel(user_data, excel_file):
         if excel_file:
             try:
                 excel_file.seek(0)
-                
                 part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                 part.set_payload(excel_file.getvalue())
                 encoders.encode_base64(part)
                 
                 filename = f"payment_application_{user_data.get('User ID', 'unknown')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-                
-                part.add_header(
-                    'Content-Disposition',
-                    f'attachment; filename= {filename}'
-                )
+                part.add_header('Content-Disposition', f'attachment; filename= {filename}')
                 msg.attach(part)
                 print(f"Excel file attached: {filename}")
-                
             except Exception as e:
                 print(f"Error attaching Excel file: {e}")
         
-        # Zoho SMTP configuration
-        server = smtplib.SMTP('smtppro.zoho.com', 465)  # Changed from Gmail
-        server.starttls()
-        server.login(sender_email, sender_password)
-        
-        # Send email to all recipients
-        text = msg.as_string()
-        server.sendmail(sender_email, recipients, text)
-        server.quit()
+        # ✅ Use Zoho SSL connection
+        with smtplib.SMTP_SSL('smtppro.zoho.com', 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipients, msg.as_string())
         
         print(f"Email sent successfully to {len(recipients)} recipient(s)!")
         return True
@@ -187,16 +172,15 @@ def test_email_config():
         return False
 
     try:
-        # Test Zoho SMTP connection (use TLS on port 587)
-        server = smtplib.SMTP("smtp.zoho.com", 587)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.quit()
-        print("Email configuration is working!")
+        # ✅ Test Zoho SMTP SSL connection
+        with smtplib.SMTP_SSL("smtppro.zoho.com", 465) as server:
+            server.login(sender_email, sender_password)
+        print("✅ Email configuration is working (SSL 465)!")
         return True
     except Exception as e:
         print(f"Email configuration error: {e}")
         return False
+
 
 if __name__ == "__main__":
     test_email_config()
