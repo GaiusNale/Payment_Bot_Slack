@@ -4,7 +4,7 @@ import csv
 import os
 from datetime import datetime
 import pandas as pd
-from send_email import send_form_data_with_excel  # Re-enabled
+from send_email import send_form_data_email  # send plain-text email (no excel attachment)
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import requests
@@ -260,8 +260,7 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
 def save_user_data(data, user_id):
-    """Process and send user data to both email and Slack"""
-    
+    """Process and send user data: send plain-text email (no excel attached) and optionally post to Slack with file"""
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -273,25 +272,21 @@ def save_user_data(data, user_id):
         "Account Name": data["accountname"],
         "Bank Name": data["bank_name"],
     }
-    
+
     try:
-        # Create Excel file in memory
-        excel_file = create_excel_file([user_data_with_timestamp])
-        
-        # Send email with Excel attachment
-        email_sent = send_form_data_with_excel(user_data_with_timestamp, excel_file)
-        
-        # Send to Slack channel with file upload (need to recreate excel_file for Slack)
+        # Send plain-text email (no Excel attachment)
+        email_sent = send_form_data_email(user_data_with_timestamp)
+
+        # Create Excel file only for Slack upload (if you still want to upload)
         excel_file_slack = create_excel_file([user_data_with_timestamp])
         channel_sent = send_to_slack_channel_with_file(user_data_with_timestamp, excel_file_slack)
-        
+
         return {
-            "success": email_sent or channel_sent,  # Success if at least one works
+            "success": email_sent or channel_sent,
             "email_sent": email_sent,
             "channel_sent": channel_sent,
             "file_uploaded": channel_sent
         }
-        
     except Exception as e:
         print(f"Error processing user data: {e}")
         return {
