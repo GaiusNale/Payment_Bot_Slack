@@ -49,9 +49,9 @@ def send_form_data_email(user_data):
         """
         msg.attach(MIMEText(body, 'plain'))
         
-        # Gmail SMTP configuration
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()  # Enable security
+        # Zoho SMTP configuration
+        server = smtplib.SMTP('smtp.zoho.com', 587)  # Changed from Gmail
+        server.starttls()
         server.login(sender_email, sender_password)
         
         # Send email
@@ -73,7 +73,7 @@ def send_form_data_with_excel(user_data, excel_file):
         sender_email = os.environ.get("EMAIL_SENDER")
         sender_password = os.environ.get("EMAIL_PASSWORD") 
         receiver_email = os.environ.get("EMAIL_RECEIVER")
-        receiver_email2 = os.environ.get("EMAIL_RECEIVER2")  # Second recipient
+        receiver_email2 = os.environ.get("EMAIL_RECEIVER2")
         
         if not all([sender_email, sender_password, receiver_email]):
             print("Missing email configuration in environment variables")
@@ -97,7 +97,7 @@ def send_form_data_with_excel(user_data, excel_file):
         # Create message
         msg = MIMEMultipart()
         msg['From'] = sender_email
-        msg['To'] = ", ".join(recipients)  # Multiple recipients
+        msg['To'] = ", ".join(recipients)
         
         # Add priority flag for high amounts
         subject_prefix = "[HIGH AMOUNT] " if send_to_second_recipient else ""
@@ -133,14 +133,12 @@ def send_form_data_with_excel(user_data, excel_file):
         # Attach Excel file if provided
         if excel_file:
             try:
-                excel_file.seek(0)  # Reset file pointer
+                excel_file.seek(0)
                 
-                # Create attachment
                 part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                 part.set_payload(excel_file.getvalue())
                 encoders.encode_base64(part)
                 
-                # Generate filename with timestamp
                 filename = f"payment_application_{user_data.get('User ID', 'unknown')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
                 
                 part.add_header(
@@ -152,11 +150,10 @@ def send_form_data_with_excel(user_data, excel_file):
                 
             except Exception as e:
                 print(f"Error attaching Excel file: {e}")
-                # Continue without attachment
         
-        # Gmail SMTP configuration
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()  # Enable security
+        # Zoho SMTP configuration
+        server = smtplib.SMTP('smtppro.zoho.com', 465)  # Changed from Gmail
+        server.starttls()
         server.login(sender_email, sender_password)
         
         # Send email to all recipients
@@ -177,12 +174,12 @@ def test_email_config():
     sender_email = os.environ.get("EMAIL_SENDER", default=None)
     sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
     receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
-    receiver_email2 = os.environ.get("EMAIL_RECEIVER2", default=None)  # Test second recipient
+    receiver_email2 = os.environ.get("EMAIL_RECEIVER2", default=None)
 
     print("Testing email configuration...")
     print(f"Sender: {sender_email}")
     print(f"Receiver 1: {receiver_email}")
-    print(f"Receiver 2: {receiver_email2 if receiver_email2 else 'Not configured'}")  # Show second recipient status
+    print(f"Receiver 2: {receiver_email2 if receiver_email2 else 'Not configured'}")
     print(f"Password: {'*' * len(sender_password) if sender_password else 'Not set'}")
 
     if not all([sender_email, sender_password, receiver_email]):
@@ -190,15 +187,16 @@ def test_email_config():
         return False
 
     try:
-        # Test SMTP connection
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            print("Email configuration is working!")
-            return True
+        # Test Zoho SMTP connection (use TLS on port 587)
+        server = smtplib.SMTP("smtp.zoho.com", 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.quit()
+        print("Email configuration is working!")
+        return True
     except Exception as e:
         print(f"Email configuration error: {e}")
         return False
 
 if __name__ == "__main__":
-    # Test the email configuration when running directly
     test_email_config()

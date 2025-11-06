@@ -4,7 +4,7 @@ import csv
 import os
 from datetime import datetime
 import pandas as pd
-# Removed: import send_email
+from send_email import send_form_data_with_excel  # Re-enabled
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import requests
@@ -29,7 +29,6 @@ STATES = {
     "ACCOUNT_NAME": 6,
     "BANK_NAME": 7,
     "CONFIRM": 8,
-    # Removed: "CHOICE": 9,
 }
 
 # Store user conversation states
@@ -103,7 +102,6 @@ def update_home_tab(client, event, logger):
         logger.info(f"Home tab updated for user {event['user']}")
     except Exception as e:
         logger.error(f"Error publishing home tab: {e}")
-        # Additional debug info
         if hasattr(e, 'response'):
             logger.error(f"Error response: {e.response}")
 
@@ -119,7 +117,6 @@ def handle_form_command(ack, say, command):
     ack()
     user_id = command["user_id"]
     
-    # Removed: check_user_submission logic - always start fresh
     set_user_state(user_id, STATES["NAME"])
     say("Please enter your name:")
 
@@ -130,19 +127,12 @@ def handle_cancel_command(ack, say, command):
     clear_user_data(user_id)
     say("Application canceled. Use `/form` to fill the form again.")
 
-# Removed: check_user_submission() function
-# Removed: get_last_submission() function
-
 def create_excel_file(user_data_list):
     """Create Excel file in memory and return as BytesIO object"""
     try:
-        # Create DataFrame from user data
         df = pd.DataFrame(user_data_list)
-        
-        # Create BytesIO object to store Excel file in memory
         excel_buffer = io.BytesIO()
         
-        # Write DataFrame to Excel file in memory
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             df.to_excel(writer, sheet_name='Payment_Applications', index=False)
             
@@ -157,13 +147,10 @@ def create_excel_file(user_data_list):
                             max_length = len(str(cell.value))
                     except:
                         pass
-                # Adjust width with some padding
                 adjusted_width = min(max_length + 2, 50)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
         
-        # Reset buffer position to beginning
         excel_buffer.seek(0)
-        
         print("Excel file created successfully in memory")
         return excel_buffer
         
@@ -182,7 +169,6 @@ def handle_message(message, say):
     if message.get("bot_id"):
         return
     
-    # Debug logging - remove after testing
     print(f"Message received from user {user_id}: '{text}'")
     print(f"Channel type: {channel_type}")
     print(f"Current state: {get_user_state(user_id)}")
@@ -245,13 +231,19 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             user_reply = text.lower()
             
             if user_reply == "yes":
-                # Save to Slack channel only (removed email functionality)
+                # Save to both email and Slack channel
                 save_result = save_user_data(data, user_id)
                 
                 if save_result["success"]:
-                    say("Your application has been submitted successfully! ✅\n• Payment data posted to Slack channel")
+                    # Build success message based on what succeeded
+                    success_parts = ["Your application has been submitted successfully! ✅"]
+                    if save_result.get("email_sent"):
+                        success_parts.append("• Email sent")
+                    if save_result.get("channel_sent"):
+                        success_parts.append("• Posted to Slack channel")
+                    say("\n".join(success_parts))
                 else:
-                    say("An error occurred while posting to the Slack channel. Please try again or contact support.")
+                    say("An error occurred while submitting your application. Please try again or contact support.")
                 
                 clear_user_data(user_id)
                 
@@ -267,7 +259,7 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
 def save_user_data(data, user_id):
-    """Process and send user data to Slack with Excel file"""
+    """Process and send user data to both email and Slack"""
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
@@ -285,13 +277,17 @@ def save_user_data(data, user_id):
         # Create Excel file in memory
         excel_file = create_excel_file([user_data_with_timestamp])
         
-        # Removed: email sending functionality
+        # Send email with Excel attachment
+        email_sent = send_form_data_with_excel(user_data_with_timestamp, excel_file)
         
-        # Send to Slack channel with file upload
-        channel_sent = send_to_slack_channel_with_file(user_data_with_timestamp, excel_file)
+        # Send to Slack channel with file upload (need to recreate excel_file for Slack)
+        excel_file_slack = create_excel_file([user_data_with_timestamp])
+        channel_sent = send_to_slack_channel_with_file(user_data_with_timestamp, excel_file_slack)
         
         return {
-            "success": channel_sent,
+            "success": email_sent or channel_sent,  # Success if at least one works
+            "email_sent": email_sent,
+            "channel_sent": channel_sent,
             "file_uploaded": channel_sent
         }
         
@@ -299,6 +295,8 @@ def save_user_data(data, user_id):
         print(f"Error processing user data: {e}")
         return {
             "success": False,
+            "email_sent": False,
+            "channel_sent": False,
             "file_uploaded": False
         }
 
@@ -311,8 +309,8 @@ def send_to_slack_channel_with_file(user_data, excel_file):
             return False
         
         # Get user IDs for tagging
-        recipient1_id = get_env("SLACK_USER_ID_2")  # Primary recipient
-        recipient2_id = get_env("SLACK_USER_ID_2")  # Secondary recipient for high amounts
+        recipient1_id = get_env("SLACK_USER_ID_2")
+        recipient2_id = get_env("SLACK_USER_ID_2")
         
         # Check amount threshold (30,000 naira)
         try:
@@ -332,7 +330,6 @@ def send_to_slack_channel_with_file(user_data, excel_file):
             tags.append(f"<@{recipient2_id}>")
             print(f"High amount detected (₦{amount_value:,.2f}) - tagging both recipients")
         
-        # Create tag string
         tag_string = " ".join(tags) if tags else ""
         
         # Format message with tags
@@ -364,7 +361,7 @@ _Submitted via Payment Bot_"""
         file_uploaded = True
         if excel_file:
             try:
-                excel_file.seek(0)  # Reset file pointer
+                excel_file.seek(0)
                 filename = f"payment_application_{user_data['User ID']}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
                 
                 file_result = slack_client.files_upload_v2(
