@@ -311,7 +311,7 @@ def send_to_slack_channel_with_file(user_data, excel_file):
             return False
         
         # Get user IDs for tagging
-        recipient1_id = get_env("SLACK_USER_ID_1")  # Primary recipient
+        recipient1_id = get_env("SLACK_USER_ID_2")  # Primary recipient
         recipient2_id = get_env("SLACK_USER_ID_2")  # Secondary recipient for high amounts
         
         # Check amount threshold (30,000 naira)
