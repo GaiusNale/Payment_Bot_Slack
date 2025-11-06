@@ -4,12 +4,12 @@ import csv
 import os
 from datetime import datetime
 import pandas as pd
-import send_email
+# Removed: import send_email
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import requests
 import threading
-import io  # Added for in-memory file handling
+import io
 
 # Get environment variables
 def get_env(key, default=None):
@@ -29,7 +29,7 @@ STATES = {
     "ACCOUNT_NAME": 6,
     "BANK_NAME": 7,
     "CONFIRM": 8,
-    "CHOICE": 9,
+    # Removed: "CHOICE": 9,
 }
 
 # Store user conversation states
@@ -119,12 +119,9 @@ def handle_form_command(ack, say, command):
     ack()
     user_id = command["user_id"]
     
-    if check_user_submission(user_id):
-        set_user_state(user_id, STATES["CHOICE"])
-        say ("You've submitted a form before. Reply with: \n- 'Full' to fill out a new form \n- 'Update to change the reason and amount requested")
-    else:
-        set_user_state(user_id, STATES["NAME"])
-        say("Please enter your name:")
+    # Removed: check_user_submission logic - always start fresh
+    set_user_state(user_id, STATES["NAME"])
+    say("Please enter your name:")
 
 @app.command("/cancel")
 def handle_cancel_command(ack, say, command):
@@ -133,13 +130,8 @@ def handle_cancel_command(ack, say, command):
     clear_user_data(user_id)
     say("Application canceled. Use `/form` to fill the form again.")
 
-def check_user_submission(user_id):
-    """Always return False - skip checking previous submissions"""
-    return False
-    
-def get_last_submission(user_id):
-    """Return None - skip retrieving previous submissions"""
-    return None
+# Removed: check_user_submission() function
+# Removed: get_last_submission() function
 
 def create_excel_file(user_data_list):
     """Create Excel file in memory and return as BytesIO object"""
@@ -204,33 +196,12 @@ def handle_message(message, say):
         state = get_user_state(user_id)
         data = get_user_data(user_id)
         
-        # Process based on current state
-        if state == STATES["CHOICE"]:
-            user_reply = text.lower()
-            if user_reply == "full":
-                set_user_state(user_id, STATES["NAME"])
-                say("Please enter your name:")
-            elif user_reply == "update":
-                last_submission = get_last_submission(user_id)
-                if last_submission:
-                    data["name"] = last_submission["Name"]
-                    data["accountnumber"] = last_submission["Account Number"]
-                    data["accountname"] = last_submission["Account Name"]
-                    data["bank_name"] = last_submission["Bank Name"]
-                    set_user_state(user_id, STATES["REASON"])
-                    say("Please enter your new reason for payment:")
-                else:
-                    say("Couldn't find your previous data. Please fill out the full form.")
-                    set_user_state(user_id, STATES["NAME"])
-                    say("Please enter your name:")
-            else:
-                say("Invalid choice. Reply with 'Full' or 'Update'.")
         
-        elif state == STATES["NAME"]:
+        if state == STATES["NAME"]:
             data["name"] = text
             set_user_state(user_id, STATES["REASON"])
             say("Please enter your reason for payment:")
-            print(f"User {user_id} moved to REASON state with name: {text}")  # Debug log
+            print(f"User {user_id} moved to REASON state with name: {text}")
             
         elif state == STATES["REASON"]:
             data["reason"] = text
@@ -274,20 +245,13 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             user_reply = text.lower()
             
             if user_reply == "yes":
-                # Save to in-memory storage and send files
+                # Save to Slack channel only (removed email functionality)
                 save_result = save_user_data(data, user_id)
                 
                 if save_result["success"]:
-                    if save_result["email_sent"] and save_result["file_uploaded"]:
-                        say("Your application has been submitted successfully! ✅\n• Excel file sent to accountant via email\n• Payment data posted to Slack channel")
-                    elif save_result["email_sent"]:
-                        say("Your application was saved and sent via email, but there was an error uploading to the Slack channel. Please contact support.")
-                    elif save_result["file_uploaded"]:
-                        say("Your application was saved and posted to the Slack channel, but there was an error sending the email. Please contact support.")
-                    else:
-                        say("Your application was saved, but there were errors with both email and Slack upload. Please contact support.")
+                    say("Your application has been submitted successfully! ✅\n• Payment data posted to Slack channel")
                 else:
-                    say("An error occurred while processing your application. Please try again.")
+                    say("An error occurred while posting to the Slack channel. Please try again or contact support.")
                 
                 clear_user_data(user_id)
                 
@@ -303,7 +267,7 @@ Review the details and reply with 'Yes' to confirm or 'No' to cancel."""
             say("Hi! Use `/form` to start a payment application or `/start` for more information.")
 
 def save_user_data(data, user_id):
-    """Process and send user data via email and Slack with Excel file"""
+    """Process and send user data to Slack with Excel file"""
     
     # Prepare the user data with timestamp and user_id
     user_data_with_timestamp = {
@@ -321,17 +285,13 @@ def save_user_data(data, user_id):
         # Create Excel file in memory
         excel_file = create_excel_file([user_data_with_timestamp])
         
-        # Send email with Excel attachment
-        email_sent = send_email.send_form_data_with_excel(user_data_with_timestamp, excel_file)
+        # Removed: email sending functionality
         
         # Send to Slack channel with file upload
-        if excel_file:
-            excel_file.seek(0)  # Reset file pointer for Slack upload
         channel_sent = send_to_slack_channel_with_file(user_data_with_timestamp, excel_file)
         
         return {
-            "success": email_sent and channel_sent,
-            "email_sent": email_sent,
+            "success": channel_sent,
             "file_uploaded": channel_sent
         }
         
@@ -339,7 +299,6 @@ def save_user_data(data, user_id):
         print(f"Error processing user data: {e}")
         return {
             "success": False,
-            "email_sent": False,
             "file_uploaded": False
         }
 
