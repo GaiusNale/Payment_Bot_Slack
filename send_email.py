@@ -13,15 +13,8 @@ def send_form_data_email(user_data):
         receiver_email = os.environ.get("EMAIL_RECEIVER")
         receiver_email2 = os.environ.get("EMAIL_RECEIVER2")
 
-        # Add detailed logging
-        print(f"Attempting to send email...")
-        print(f"Sender configured: {bool(sender_email)}")
-        print(f"Password configured: {bool(sender_password)}")
-        print(f"Receiver 1 configured: {bool(receiver_email)}")
-        print(f"Receiver 2 configured: {bool(receiver_email2)}")
-
         if not all([sender_email, sender_password, receiver_email]):
-            print("ERROR: Missing email configuration in environment variables")
+            print("Missing email configuration in environment variables")
             return False
 
         # Check amount threshold (30,000 naira)
@@ -29,8 +22,7 @@ def send_form_data_email(user_data):
             amount_str = str(user_data.get('Amount', '0')).replace(',', '').replace('₦', '')
             amount_value = float(amount_str)
             send_to_second_recipient = amount_value > 30000
-        except (ValueError, TypeError) as e:
-            print(f"Warning: Could not parse amount: {e}")
+        except (ValueError, TypeError):
             amount_value = 0
             send_to_second_recipient = False
 
@@ -72,37 +64,24 @@ Payment Bot System
         """
         msg.attach(MIMEText(body, 'plain'))
 
-        print(f"Connecting to smtppro.zoho.com:465...")
-        # Use Zoho SMTP SSL connection with timeout
-        with smtplib.SMTP_SSL('smtppro.zoho.com', 465, timeout=30) as server:
-            print("Connected. Logging in...")
+        # Use Zoho SMTP SSL connection
+        with smtplib.SMTP_SSL('smtppro.zoho.com', 465) as server:
             server.login(sender_email, sender_password)
-            print(f"Logged in. Sending to {recipients}...")
             server.sendmail(sender_email, recipients, msg.as_string())
-            print(f"✅ Email sent successfully to {len(recipients)} recipient(s)!")
 
+        print(f"Form data email sent successfully to {len(recipients)} recipient(s)!")
         return True
-        
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ SMTP Authentication failed: {e}")
-        print("Check your EMAIL_SENDER and EMAIL_PASSWORD")
-        return False
-    except smtplib.SMTPException as e:
-        print(f"❌ SMTP error: {e}")
-        return False
     except Exception as e:
-        print(f"❌ Unexpected error sending email: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error sending form data email: {e}")
         return False
 
 
 def test_email_config():
     """Test if email configuration is working"""
-    sender_email = os.environ.get("EMAIL_SENDER")
-    sender_password = os.environ.get("EMAIL_PASSWORD")
-    receiver_email = os.environ.get("EMAIL_RECEIVER")
-    receiver_email2 = os.environ.get("EMAIL_RECEIVER2")
+    sender_email = os.environ.get("EMAIL_SENDER", default=None)
+    sender_password = os.environ.get("EMAIL_PASSWORD", default=None)
+    receiver_email = os.environ.get("EMAIL_RECEIVER", default=None)
+    receiver_email2 = os.environ.get("EMAIL_RECEIVER2", default=None)
 
     print("Testing email configuration...")
     print(f"Sender: {sender_email}")
@@ -115,23 +94,13 @@ def test_email_config():
         return False
 
     try:
-        print("Attempting connection to smtppro.zoho.com:465...")
-        # Test Zoho SMTP SSL connection with debug output
-        with smtplib.SMTP_SSL("smtppro.zoho.com", 465, timeout=30) as server:
-            server.set_debuglevel(1)  # Show detailed SMTP conversation
-            print("Attempting login...")
+        # ✅ Test Zoho SMTP SSL connection
+        with smtplib.SMTP_SSL("smtppro.zoho.com", 465) as server:
             server.login(sender_email, sender_password)
         print("✅ Email configuration is working (SSL 465)!")
         return True
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ Authentication failed: {e}")
-        print("Possible issues:")
-        print("  - Wrong password (use app-specific password for Zoho)")
-        print("  - Incorrect email format")
-        print("  - Account not configured for SMTP")
-        return False
     except Exception as e:
-        print(f"❌ Email configuration error: {type(e).__name__}: {e}")
+        print(f"Email configuration error: {e}")
         return False
 
 
